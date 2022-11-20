@@ -48,18 +48,18 @@ void printMatrix(void *A, const char *prefix) {
   printf("\n\n");
 }
 
-extern "C" void sparse_matmul(void *context, void *A, void *B, void *C, int num_rows, int num_cols)
+extern "C" void sparse_matmul(void *context, void *A, void *B, void *C, int num_A_rows, int num_A_cols, int num_B_cols)
 {
   printMatrix(A, "A gpu ");
   cusparseLtHandle_t handle = static_cast<Context*>(context)->cslt_handle;
 
   cusparseLtMatDescriptor_t matA, matB, matC;
-  CHECK_CUSPARSE(cusparseLtStructuredDescriptorInit(&handle, &matA, num_rows, num_cols, num_cols, 16, CUDA_R_16F, CUSPARSE_ORDER_ROW, CUSPARSELT_SPARSITY_50_PERCENT))
-  CHECK_CUSPARSE(cusparseLtDenseDescriptorInit(&handle, &matB, num_rows, num_cols, num_rows, 16, CUDA_R_16F, CUSPARSE_ORDER_ROW))
-  CHECK_CUSPARSE(cusparseLtDenseDescriptorInit(&handle, &matC, num_rows, num_cols, num_rows, 16, CUDA_R_16F, CUSPARSE_ORDER_ROW))
+  CHECK_CUSPARSE(cusparseLtStructuredDescriptorInit(&handle, &matA, num_A_rows, num_A_cols, num_A_cols, 16, CUDA_R_16F, CUSPARSE_ORDER_ROW, CUSPARSELT_SPARSITY_50_PERCENT))
+  CHECK_CUSPARSE(cusparseLtDenseDescriptorInit(&handle, &matB, num_A_cols, num_B_cols, num_B_cols, 16, CUDA_R_16F, CUSPARSE_ORDER_ROW))
+  CHECK_CUSPARSE(cusparseLtDenseDescriptorInit(&handle, &matC, num_A_rows, num_B_cols, num_B_cols, 16, CUDA_R_16F, CUSPARSE_ORDER_ROW))
 
   cusparseLtMatmulDescriptor_t matmul;
-  CHECK_CUSPARSE(cusparseLtMatmulDescriptorInit(&handle, &matmul, CUSPARSE_OPERATION_NON_TRANSPOSE, CUSPARSE_OPERATION_TRANSPOSE, &matA, &matB, &matC, &matC, CUSPARSE_COMPUTE_16F))
+  CHECK_CUSPARSE(cusparseLtMatmulDescriptorInit(&handle, &matmul, CUSPARSE_OPERATION_NON_TRANSPOSE, CUSPARSE_OPERATION_NON_TRANSPOSE, &matA, &matB, &matC, &matC, CUSPARSE_COMPUTE_16F))
 
   // Prune A in place
   CHECK_CUSPARSE(cusparseLtSpMMAPrune(&handle, &matmul, A, A, CUSPARSELT_PRUNE_SPMMA_STRIP, nullptr))
@@ -84,7 +84,7 @@ extern "C" void sparse_matmul(void *context, void *A, void *B, void *C, int num_
   CHECK_CUSPARSE(cusparseLtMatmulAlgSetAttribute(&handle, &alg_sel, CUSPARSELT_MATMUL_ALG_CONFIG_ID, &alg, sizeof(alg)))
   CHECK_CUSPARSE(cusparseLtMatmulPlanInit(&handle, &plan, &matmul, &alg_sel, 0))
   float alpha = 1.0f;
-  float beta = 1.0f;
+  float beta = 0.0f;
   // CHECK_CUSPARSE(cusparseLtMatmulSearch(&handle, &plan, &alpha, A_compressed, B, &beta, C, C, nullptr, nullptr, 0));
   // int alg_id;
   // CHECK_CUSPARSE(cusparseLtMatmulAlgGetAttribute(&handle, &alg_sel, CUSPARSELT_MATMUL_ALG_CONFIG_ID, &alg_id, sizeof(alg_id)))
@@ -95,11 +95,11 @@ extern "C" void sparse_matmul(void *context, void *A, void *B, void *C, int num_
   // CHECK_CUSPARSE(cusparseLtMatmulAlgGetAttribute(&handle, &alg_sel, CUSPARSELT_MATMUL_SPLIT_K_BUFFERS, &splitKBuffers, sizeof(splitKBuffers)))
   // printf("alg_id: %i, splitK: %i, splitKBuffers: %i, splitkMode: %i\n", alg_id, (int)splitK, (int)splitKBuffers, splitKMode);
 
-  size_t workspace_size;
-  CHECK_CUSPARSE(cusparseLtMatmulGetWorkspace(&handle, &plan, &workspace_size))
-  void *d_workspace = nullptr;
-  CHECK_CUDA(cudaMalloc((void **)&d_workspace, workspace_size))
-  printf("worksparse size: %i\n", (int)workspace_size);
+  // size_t workspace_size;
+  // CHECK_CUSPARSE(cusparseLtMatmulGetWorkspace(&handle, &plan, &workspace_size))
+  // void *d_workspace = nullptr;
+  // CHECK_CUDA(cudaMalloc((void **)&d_workspace, workspace_size))
+  // printf("worksparse size: %i\n", (int)workspace_size);
   // Perform the matrix multiplication
-  CHECK_CUSPARSE(cusparseLtMatmul(&handle, &plan, &alpha, A_compressed, B, &beta, C, C, d_workspace, nullptr, 0))
+  CHECK_CUSPARSE(cusparseLtMatmul(&handle, &plan, &alpha, A_compressed, B, &beta, C, C, nullptr, nullptr, 0))
 }
