@@ -50,8 +50,8 @@ void printMatrix(void *A, const char *prefix) {
 
 extern "C" void sparse_matmul(void *context, void *A, void *B, void *C, int num_A_rows, int num_A_cols, int num_B_cols)
 {
-  printMatrix(A, "A gpu ");
-  cusparseLtHandle_t handle = static_cast<Context*>(context)->cslt_handle;
+  timespec t1; clock_gettime(CLOCK_MONOTONIC_RAW, &t1);
+  cusparseLtHandle_t handle = ((Context*)context)->cslt_handle;
 
   cusparseLtMatDescriptor_t matA, matB, matC;
   CHECK_CUSPARSE(cusparseLtStructuredDescriptorInit(&handle, &matA, num_A_rows, num_A_cols, num_A_cols, 16, CUDA_R_16F, CUSPARSE_ORDER_ROW, CUSPARSELT_SPARSITY_50_PERCENT))
@@ -59,14 +59,15 @@ extern "C" void sparse_matmul(void *context, void *A, void *B, void *C, int num_
   CHECK_CUSPARSE(cusparseLtDenseDescriptorInit(&handle, &matC, num_A_rows, num_B_cols, num_B_cols, 16, CUDA_R_16F, CUSPARSE_ORDER_ROW))
 
   cusparseLtMatmulDescriptor_t matmul;
-  CHECK_CUSPARSE(cusparseLtMatmulDescriptorInit(&handle, &matmul, CUSPARSE_OPERATION_NON_TRANSPOSE, CUSPARSE_OPERATION_NON_TRANSPOSE, &matA, &matB, &matC, &matC, CUSPARSE_COMPUTE_16F))
+  CHECK_CUSPARSE(cusparseLtMatmulDescriptorInit(&handle, &matmul, CUSPARSE_OPERATION_NON_TRANSPOSE, CUSPARSE_OPERATION_TRANSPOSE, &matA, &matB, &matC, &matC, CUSPARSE_COMPUTE_16F))
+  timespec t2; clock_gettime(CLOCK_MONOTONIC_RAW, &t2);
+  printf("Time of descriptor creation: %.3fms\n", (float)(t2.tv_nsec - t1.tv_nsec)/1'000'000);
 
   // Prune A in place
   CHECK_CUSPARSE(cusparseLtSpMMAPrune(&handle, &matmul, A, A, CUSPARSELT_PRUNE_SPMMA_STRIP, nullptr))
   int d_valid;
   CHECK_CUDA(cudaMalloc((void **)&d_valid, sizeof(d_valid)));
   CHECK_CUSPARSE(cusparseLtSpMMAPruneCheck(&handle, &matmul, A, &d_valid, nullptr))
-  printMatrix(A, "A pruned ");
 
   // Create a new compressed A
   __half *A_compressed;
@@ -74,7 +75,9 @@ extern "C" void sparse_matmul(void *context, void *A, void *B, void *C, int num_
   CHECK_CUSPARSE(cusparseLtSpMMACompressedSize2(&handle, &matA, &compressed_size))
   CHECK_CUDA(cudaMalloc(&A_compressed, compressed_size))
   CHECK_CUSPARSE(cusparseLtSpMMACompress2(&handle, &matA, 1, CUSPARSE_OPERATION_NON_TRANSPOSE, A, A_compressed, nullptr))
-  printMatrix(A_compressed, "A compressed ");
+
+  timespec t3; clock_gettime(CLOCK_MONOTONIC_RAW, &t3);
+  printf("Time of pruning: %.3fms\n", (float)(t3.tv_nsec - t2.tv_nsec)/1'000'000);
 
   // Find the best kernel
   int alg = 0;
@@ -85,6 +88,8 @@ extern "C" void sparse_matmul(void *context, void *A, void *B, void *C, int num_
   CHECK_CUSPARSE(cusparseLtMatmulPlanInit(&handle, &plan, &matmul, &alg_sel, 0))
   float alpha = 1.0f;
   float beta = 0.0f;
+  timespec t4; clock_gettime(CLOCK_MONOTONIC_RAW, &t4);
+  printf("Time of plan setup: %.3fms\n", (float)(t4.tv_nsec - t3.tv_nsec)/1'000'000);
   // CHECK_CUSPARSE(cusparseLtMatmulSearch(&handle, &plan, &alpha, A_compressed, B, &beta, C, C, nullptr, nullptr, 0));
   // int alg_id;
   // CHECK_CUSPARSE(cusparseLtMatmulAlgGetAttribute(&handle, &alg_sel, CUSPARSELT_MATMUL_ALG_CONFIG_ID, &alg_id, sizeof(alg_id)))
@@ -101,5 +106,9 @@ extern "C" void sparse_matmul(void *context, void *A, void *B, void *C, int num_
   // CHECK_CUDA(cudaMalloc((void **)&d_workspace, workspace_size))
   // printf("worksparse size: %i\n", (int)workspace_size);
   // Perform the matrix multiplication
+  timespec t5; clock_gettime(CLOCK_MONOTONIC_RAW, &t5);
+  printf("Time of SPMM setup: %.3fms\n", (float)(t5.tv_nsec - t4.tv_nsec)/1'000'000);
   CHECK_CUSPARSE(cusparseLtMatmul(&handle, &plan, &alpha, A_compressed, B, &beta, C, C, nullptr, nullptr, 0))
+  timespec t6; clock_gettime(CLOCK_MONOTONIC_RAW, &t6);
+  printf("Time of SPMM      : %.3fms\n", (float)(t6.tv_nsec - t5.tv_nsec)/1'000'000);
 }
