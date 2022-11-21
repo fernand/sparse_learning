@@ -59,7 +59,7 @@ struct Descriptor
   cudaDataType_t dtype;
   bool operator<(const Descriptor &o) const
   {
-    return std::make_tuple(num_rows, num_cols, (int)dtype) < std::make_tuple(o.num_rows, o.num_cols, o.dtype);
+    return std::make_tuple(num_rows, num_cols, (int)dtype) < std::make_tuple(o.num_rows, o.num_cols, (int)o.dtype);
   }
 };
 
