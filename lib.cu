@@ -1,7 +1,7 @@
-#include <stdlib.h>
 #include <stdio.h>
 #include <time.h>
 #include <map>
+#include <tuple>
 
 #include <cusparseLt.h>
 
@@ -34,7 +34,7 @@ struct Context
   }
 };
 
-extern "C" Context *get_context()
+extern "C" void *get_context()
 {
   return new Context();
 }
@@ -57,10 +57,9 @@ struct Descriptor
   int num_rows;
   int num_cols;
   cudaDataType_t dtype;
-
-  bool operator<(const Descriptor &other) const
+  bool operator<(const Descriptor &o) const
   {
-    return num_rows < other.num_rows && num_cols < other.num_cols && (int)dtype < (int)other.dtype;
+    return std::make_tuple(num_rows, num_cols, (int)dtype) < std::make_tuple(o.num_rows, o.num_cols, o.dtype);
   }
 };
 
@@ -69,11 +68,15 @@ cusparseLtMatDescriptor_t *dense_desc_get_or_init(cusparseLtHandle_t *handle, De
 {
   auto it = dense_descriptors.find(desc);
   if (it != dense_descriptors.end())
+  {
+    printf("Found one already\n");
     return &dense_descriptors[desc];
+  }
   else
   {
     cusparseLtMatDescriptor_t mat;
-    CHECK_CUSPARSE(cusparseLtDenseDescriptorInit(handle, &mat, desc.num_rows, desc.num_cols, desc.num_cols, 16, desc.dtype, CUSPARSE_ORDER_ROW))
+    CHECK_CUSPARSE(cusparseLtDenseDescriptorInit(handle, &mat, desc.num_rows, desc.num_cols, desc.num_cols,
+                                                 16, desc.dtype, CUSPARSE_ORDER_ROW))
     dense_descriptors[desc] = mat;
     return &dense_descriptors[desc];
   }
@@ -106,9 +109,9 @@ struct MatmulDescriptor
   cusparseLtMatDescriptor_t *matB;
   cusparseLtMatDescriptor_t *matC;
   cusparseComputeType compute_type;
-  bool operator<(const MatmulDescriptor &other) const {
-    return (int)opA < (int)other.opA && (int)opB < (int)other.opB && descA < other.descA &&
-      descB < other.descB && descC < other.descC && (int)compute_type < (int)other.compute_type
+  bool operator<(const MatmulDescriptor &o) const
+  {
+    return std::make_tuple((int)opA, (int)opB, descA, descB, descC, (int)compute_type) < std::make_tuple((int)o.opA, (int)o.opB, o.descA, o.descB, o.descC, (int)o.compute_type);
   }
 };
 static std::map<MatmulDescriptor, cusparseLtMatmulDescriptor_t> matmul_descriptors;
@@ -127,25 +130,21 @@ cusparseLtMatmulDescriptor_t *matmul_desc_get_or_init(cusparseLtHandle_t *handle
   }
 }
 
-extern "C" void sparse_matmul(void *context, void *A, void *B, void *C, int num_A_rows, int num_A_cols, int num_B_cols)
+extern "C" void sparse_matmul(void *context, void *A, void *B, void *C, int num_A_rows, int num_A_cols, int num_B_rows, int num_B_cols)
 {
   cusparseLtHandle_t handle = ((Context *)context)->cslt_handle;
 
   Descriptor descA{num_A_rows, num_A_cols, CUDA_R_16F};
   cusparseLtMatDescriptor_t *matA = structured_desc_get_or_init(&handle, descA);
-  Descriptor descB{num_A_cols, num_B_cols, CUDA_R_16F};
+  Descriptor descB{num_B_rows, num_B_cols, CUDA_R_16F};
   cusparseLtMatDescriptor_t *matB = dense_desc_get_or_init(&handle, descB);
-  Descriptor descC{num_A_rows, num_B_cols, CUDA_R_16F};
+  Descriptor descC{num_A_rows, num_B_rows, CUDA_R_16F};
   cusparseLtMatDescriptor_t *matC = dense_desc_get_or_init(&handle, descC);
 
   cusparseLtMatmulDescriptor_t *matmul = matmul_desc_get_or_init(&handle, MatmulDescriptor{
-    CUSPARSE_OPERATION_NON_TRANSPOSE, CUSPARSE_OPERATION_TRANSPOSE, descA, descB, descC, matA, matB, matC, CUSPARSE_COMPUTE_16F
-  });
+                                                                              CUSPARSE_OPERATION_NON_TRANSPOSE, CUSPARSE_OPERATION_TRANSPOSE, descA, descB, descC, matA, matB, matC, CUSPARSE_COMPUTE_16F});
 
   CHECK_CUSPARSE(cusparseLtSpMMAPrune(&handle, matmul, A, A, CUSPARSELT_PRUNE_SPMMA_STRIP, nullptr))
-  // int d_valid;
-  // CHECK_CUDA(cudaMalloc((void **)&d_valid, sizeof(d_valid)));
-  CHECK_CUSPARSE(cusparseLtSpMMAPruneCheck(&handle, matmul, A, nullptr, nullptr))
 
   __half *A_compressed;
   size_t compressed_size;
