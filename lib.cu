@@ -68,9 +68,7 @@ cusparseLtMatDescriptor_t *dense_desc_get_or_init(cusparseLtHandle_t *handle, De
 {
   auto it = dense_descriptors.find(desc);
   if (it != dense_descriptors.end())
-  {
     return &dense_descriptors[desc];
-  }
   else
   {
     cusparseLtMatDescriptor_t mat;
