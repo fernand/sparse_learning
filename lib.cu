@@ -130,6 +130,29 @@ cusparseLtMatmulDescriptor_t *matmul_desc_get_or_init(cusparseLtHandle_t *handle
   }
 }
 
+struct Plan {
+  int alg{0};
+  cusparseLtMatmulPlan_t plan;
+  cusparseLtMatmulAlgSelection_t alg_sel;
+};
+static std::map<MatmulDescriptor, Plan> plans;
+Plan *plan_get_or_init(cusparseLtHandle_t *handle, MatmulDescriptor desc)
+{
+  auto it = plans.find(desc);
+  if (it != plans.end()) {
+    return &plans[desc];
+  }
+  else {
+    cusparseLtMatmulDescriptor_t *matmul = &matmul_descriptors[desc];
+    Plan plan{};
+    CHECK_CUSPARSE(cusparseLtMatmulAlgSelectionInit(handle, &plan.alg_sel, matmul, CUSPARSELT_MATMUL_ALG_DEFAULT))
+    CHECK_CUSPARSE(cusparseLtMatmulAlgSetAttribute(handle, &plan.alg_sel, CUSPARSELT_MATMUL_ALG_CONFIG_ID, &plan.alg, sizeof(plan.alg)))
+    CHECK_CUSPARSE(cusparseLtMatmulPlanInit(handle, &plan.plan, matmul, &plan.alg_sel, 0))
+    plans[desc] = plan;
+    return &plans[desc];
+  }
+}
+
 extern "C" void sparse_matmul(void *context, void *A, void *B, void *C, int num_A_rows, int num_A_cols, int num_B_rows, int num_B_cols)
 {
   cusparseLtHandle_t handle = ((Context *)context)->cslt_handle;
@@ -140,9 +163,8 @@ extern "C" void sparse_matmul(void *context, void *A, void *B, void *C, int num_
   cusparseLtMatDescriptor_t *matB = dense_desc_get_or_init(&handle, descB);
   Descriptor descC{num_A_rows, num_B_rows, CUDA_R_16F};
   cusparseLtMatDescriptor_t *matC = dense_desc_get_or_init(&handle, descC);
-
-  cusparseLtMatmulDescriptor_t *matmul = matmul_desc_get_or_init(
-      &handle, MatmulDescriptor{CUSPARSE_OPERATION_NON_TRANSPOSE, CUSPARSE_OPERATION_TRANSPOSE, descA, descB, descC, matA, matB, matC, CUSPARSE_COMPUTE_16F});
+  MatmulDescriptor matmul_desc{CUSPARSE_OPERATION_NON_TRANSPOSE, CUSPARSE_OPERATION_TRANSPOSE, descA, descB, descC, matA, matB, matC, CUSPARSE_COMPUTE_16F};
+  cusparseLtMatmulDescriptor_t *matmul = matmul_desc_get_or_init(&handle, matmul_desc);
 
   CHECK_CUSPARSE(cusparseLtSpMMAPrune(&handle, matmul, A, A, CUSPARSELT_PRUNE_SPMMA_STRIP, nullptr))
 
@@ -152,14 +174,9 @@ extern "C" void sparse_matmul(void *context, void *A, void *B, void *C, int num_
   CHECK_CUDA(cudaMalloc(&A_compressed, compressed_size))
   CHECK_CUSPARSE(cusparseLtSpMMACompress2(&handle, matA, 1, CUSPARSE_OPERATION_NON_TRANSPOSE, A, A_compressed, nullptr))
 
-  int alg = 0;
-  cusparseLtMatmulPlan_t plan;
-  cusparseLtMatmulAlgSelection_t alg_sel;
-  CHECK_CUSPARSE(cusparseLtMatmulAlgSelectionInit(&handle, &alg_sel, matmul, CUSPARSELT_MATMUL_ALG_DEFAULT))
-  CHECK_CUSPARSE(cusparseLtMatmulAlgSetAttribute(&handle, &alg_sel, CUSPARSELT_MATMUL_ALG_CONFIG_ID, &alg, sizeof(alg)))
-  CHECK_CUSPARSE(cusparseLtMatmulPlanInit(&handle, &plan, matmul, &alg_sel, 0))
+  Plan *plan = plan_get_or_init(&handle, matmul_desc);
   float alpha = 1.0f;
   float beta = 0.0f;
-  CHECK_CUSPARSE(cusparseLtMatmul(&handle, &plan, &alpha, A_compressed, B, &beta, C, C, nullptr, nullptr, 0))
+  CHECK_CUSPARSE(cusparseLtMatmul(&handle, &plan->plan, &alpha, A_compressed, B, &beta, C, C, nullptr, nullptr, 0))
   CHECK_CUDA(cudaFree(A_compressed))
 }
