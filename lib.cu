@@ -69,7 +69,6 @@ cusparseLtMatDescriptor_t *dense_desc_get_or_init(cusparseLtHandle_t *handle, De
   auto it = dense_descriptors.find(desc);
   if (it != dense_descriptors.end())
   {
-    printf("Found one already\n");
     return &dense_descriptors[desc];
   }
   else
@@ -141,8 +140,8 @@ extern "C" void sparse_matmul(void *context, void *A, void *B, void *C, int num_
   Descriptor descC{num_A_rows, num_B_rows, CUDA_R_16F};
   cusparseLtMatDescriptor_t *matC = dense_desc_get_or_init(&handle, descC);
 
-  cusparseLtMatmulDescriptor_t *matmul = matmul_desc_get_or_init(&handle, MatmulDescriptor{
-                                                                              CUSPARSE_OPERATION_NON_TRANSPOSE, CUSPARSE_OPERATION_TRANSPOSE, descA, descB, descC, matA, matB, matC, CUSPARSE_COMPUTE_16F});
+  cusparseLtMatmulDescriptor_t *matmul = matmul_desc_get_or_init(
+      &handle, MatmulDescriptor{CUSPARSE_OPERATION_NON_TRANSPOSE, CUSPARSE_OPERATION_TRANSPOSE, descA, descB, descC, matA, matB, matC, CUSPARSE_COMPUTE_16F});
 
   CHECK_CUSPARSE(cusparseLtSpMMAPrune(&handle, matmul, A, A, CUSPARSELT_PRUNE_SPMMA_STRIP, nullptr))
 
