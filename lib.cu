@@ -67,8 +67,9 @@ static std::map<Descriptor, cusparseLtMatDescriptor_t> dense_descriptors;
 cusparseLtMatDescriptor_t *dense_desc_get_or_init(cusparseLtHandle_t *handle, Descriptor desc)
 {
   auto it = dense_descriptors.find(desc);
-  if (it != dense_descriptors.end())
+  if (it != dense_descriptors.end()) {
     return &dense_descriptors[desc];
+  }
   else
   {
     cusparseLtMatDescriptor_t mat;
@@ -83,8 +84,9 @@ static std::map<Descriptor, cusparseLtMatDescriptor_t> structured_descriptors;
 cusparseLtMatDescriptor_t *structured_desc_get_or_init(cusparseLtHandle_t *handle, Descriptor desc)
 {
   auto it = structured_descriptors.find(desc);
-  if (it != structured_descriptors.end())
+  if (it != structured_descriptors.end()) {
     return &structured_descriptors[desc];
+  }
   else
   {
     cusparseLtMatDescriptor_t mat;
@@ -115,8 +117,9 @@ static std::map<MatmulDescriptor, cusparseLtMatmulDescriptor_t> matmul_descripto
 cusparseLtMatmulDescriptor_t *matmul_desc_get_or_init(cusparseLtHandle_t *handle, MatmulDescriptor desc)
 {
   auto it = matmul_descriptors.find(desc);
-  if (it != matmul_descriptors.end())
+  if (it != matmul_descriptors.end()) {
     return &matmul_descriptors[desc];
+  }
   else
   {
     cusparseLtMatmulDescriptor_t matmul;
