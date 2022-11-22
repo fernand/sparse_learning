@@ -130,6 +130,25 @@ cusparseLtMatmulDescriptor_t *matmul_desc_get_or_init(cusparseLtHandle_t *handle
   }
 }
 
+// TODO: add compressed size in the map value
+// TODO: free data with some sort of CUDA unique_ptr
+static std::map<MatmulDescriptor, void*> compressed_matrices;
+void *compressed_matrix_get_or_alloc(cusparseLtHandle_t *handle, MatmulDescriptor desc, void* A)
+{
+  auto it = compressed_matrices.find(desc);
+  if (it != compressed_matrices.end()) {
+    return compressed_matrices[desc];
+  } else {
+    __half *A_compressed;
+    size_t compressed_size;
+    CHECK_CUSPARSE(cusparseLtSpMMACompressedSize2(handle, desc.matA, &compressed_size))
+    CHECK_CUDA(cudaMalloc(&A_compressed, compressed_size))
+    CHECK_CUSPARSE(cusparseLtSpMMACompress2(handle, desc.matA, 1, CUSPARSE_OPERATION_NON_TRANSPOSE, A, A_compressed, nullptr))
+    compressed_matrices[desc] = A_compressed;
+    return A_compressed;
+  }
+}
+
 struct Plan {
   int alg{0};
   cusparseLtMatmulPlan_t plan;
@@ -167,16 +186,10 @@ extern "C" void sparse_matmul(void *context, void *A, void *B, void *C, int num_
   cusparseLtMatmulDescriptor_t *matmul = matmul_desc_get_or_init(&handle, matmul_desc);
 
   CHECK_CUSPARSE(cusparseLtSpMMAPrune(&handle, matmul, A, A, CUSPARSELT_PRUNE_SPMMA_STRIP, nullptr))
-
-  __half *A_compressed;
-  size_t compressed_size;
-  CHECK_CUSPARSE(cusparseLtSpMMACompressedSize2(&handle, matA, &compressed_size))
-  CHECK_CUDA(cudaMalloc(&A_compressed, compressed_size))
-  CHECK_CUSPARSE(cusparseLtSpMMACompress2(&handle, matA, 1, CUSPARSE_OPERATION_NON_TRANSPOSE, A, A_compressed, nullptr))
+  void *A_compressed = compressed_matrix_get_or_alloc(&handle, matmul_desc, A);
 
   Plan *plan = plan_get_or_init(&handle, matmul_desc);
   float alpha = 1.0f;
   float beta = 0.0f;
   CHECK_CUSPARSE(cusparseLtMatmul(&handle, &plan->plan, &alpha, A_compressed, B, &beta, C, C, nullptr, nullptr, 0))
-  CHECK_CUDA(cudaFree(A_compressed))
 }

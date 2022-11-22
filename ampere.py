@@ -1,3 +1,4 @@
+# from https://github.com/NVIDIA/apex/blob/master/apex/contrib/sparsity/sparse_masklib.py BSD licensed
 import sys
 import torch
 import numpy as np
